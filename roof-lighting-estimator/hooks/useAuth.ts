@@ -7,7 +7,7 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   init: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -26,8 +26,12 @@ export const useAuth = create<AuthState>((set) => ({
     });
   },
 
-  signUp: async (email, password) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+  signUp: async (email, password, fullName?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: fullName ?? '' } },
+    });
     return { error: error?.message ?? null };
   },
 
