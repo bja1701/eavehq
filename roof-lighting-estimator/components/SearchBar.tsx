@@ -1,11 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useEstimatorStore } from '../store/useEstimatorStore';
-import { useTrialStore } from '../store/useTrialStore';
 
 const SearchBar: React.FC = () => {
-  // Pull both actions from the store
   const { setMapCenter, setStreetViewPosition, reset } = useEstimatorStore();
-  const { useEstimate } = useTrialStore();
   const inputRef = useRef<HTMLInputElement>(null);
   // Using 'any' for the ref type because the 'google' namespace might not be available in the global type definitions.
   const autocompleteRef = useRef<any>(null);
@@ -45,9 +42,6 @@ const SearchBar: React.FC = () => {
           // Reset the drawing state for the new location
           reset();
 
-          // 3. Count this as one trial estimate (dedup handled in store)
-          const address = place.formatted_address ?? `${location.lat()},${location.lng()}`;
-          useEstimate(address);
         }
       });
 

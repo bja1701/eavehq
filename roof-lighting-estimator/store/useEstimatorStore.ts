@@ -8,11 +8,13 @@ interface ExtendedEstimatorState extends EstimatorState {
   // Decoupled Positions
   satelliteCenter: LatLng;
   streetViewPosition: LatLng;
-  
+
   // Actions
   setMapCenter: (location: LatLng) => void; // Updates Satellite Only (used by Search)
   setStreetViewPosition: (location: LatLng) => void;
   syncStreetViewToSatellite: () => void;
+  loadProfilePricing: (pricePerFt: number, controllerFee: number, includeController: boolean) => void;
+  restoreCanvas: (canvasState: any) => void;
 }
 
 export const useEstimatorStore = create<ExtendedEstimatorState>((set, get) => ({
@@ -145,6 +147,26 @@ export const useEstimatorStore = create<ExtendedEstimatorState>((set, get) => ({
 
   setPitch: (pitch: string) => {
     // Legacy support
+  },
+
+  loadProfilePricing: (pricePerFt, controllerFee, includeController) => {
+    set({ pricePerFt, controllerFee, includeController });
+    get().calculateTotals();
+  },
+
+  restoreCanvas: (canvasState) => {
+    if (!canvasState) return;
+    set({
+      nodes: canvasState.nodes ?? [],
+      lines: canvasState.lines ?? [],
+      pricePerFt: canvasState.pricePerFt ?? get().pricePerFt,
+      controllerFee: canvasState.controllerFee ?? get().controllerFee,
+      includeController: canvasState.includeController ?? get().includeController,
+      satelliteCenter: canvasState.satelliteCenter ?? get().satelliteCenter,
+      selectedLineId: null,
+      activeDrawNodeId: null,
+    });
+    get().calculateTotals();
   },
 
   setPricePerFt: (price) => {
