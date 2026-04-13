@@ -18,7 +18,16 @@ export default function UpgradeModal() {
     setError('');
     try {
       const { data, error: fnError } = await supabase.functions.invoke('create-checkout-session');
-      if (fnError) throw new Error(fnError.message);
+      if (fnError) {
+        // Try to extract the actual error body from the function response
+        let message = fnError.message;
+        try {
+          // FunctionsHttpError exposes the raw Response on .context
+          const body = await (fnError as any).context?.json?.();
+          if (body?.error) message = body.error;
+        } catch { /* ignore parse failure */ }
+        throw new Error(message);
+      }
       if (!data?.url) throw new Error('No checkout URL returned');
       window.location.href = data.url;
     } catch (err: unknown) {
