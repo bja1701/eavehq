@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useProfile } from '../hooks/useProfile';
 import { useUpgradeModal } from '../hooks/useUpgradeModal';
 import SharedLayout from '../components/SharedLayout';
+import ProWelcomeModal from '../components/ProWelcomeModal';
 
 const labelCls = 'block text-[11px] font-label font-bold uppercase tracking-wider text-on-surface-variant mb-1.5';
 const inputCls = 'w-full px-4 py-3 bg-surface-container-low border-none rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-container text-on-surface text-sm placeholder:text-outline/50 transition-all';
@@ -22,6 +23,25 @@ export default function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const upgradeSuccess = new URLSearchParams(window.location.search).get('upgrade') === 'success';
+  const [showProModal, setShowProModal] = useState(upgradeSuccess);
+  const [canceling, setCanceling] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+
+  const handleCancelSubscription = async () => {
+    setCanceling(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data, error: fnError } = await supabase.functions.invoke('cancel-subscription', {
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    });
+    setCanceling(false);
+    setCancelConfirm(false);
+    if (fnError || !data?.ok) {
+      setError('Failed to cancel subscription. Please try again or contact support.');
+      return;
+    }
+    // Profile will reflect canceled state on next fetch
+    window.location.reload();
+  };
 
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -248,17 +268,13 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {upgradeSuccess && (
-              <div className="mb-4 flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
-                <span className="material-symbols-outlined text-base">check_circle</span>
-                You're now on Pro — unlimited estimates unlocked!
-              </div>
-            )}
-
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold text-on-surface">
-                  {profile?.subscription_status === 'active' ? 'Pro' : 'Free'} Plan
+                <div className="text-sm font-semibold text-on-surface flex items-center gap-2">
+                  {profile?.subscription_status === 'active' && (
+                    <span className="material-symbols-outlined text-amber-500 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                  )}
+                  {profile?.subscription_status === 'active' ? 'Pro Plan' : 'Free Plan'}
                 </div>
                 <div className="text-xs text-on-surface-variant mt-0.5">
                   {profile?.subscription_status === 'active'
@@ -266,15 +282,49 @@ export default function SettingsPage() {
                     : `${profile?.estimates_used ?? 0} of 5 free estimates used`}
                 </div>
               </div>
-              {profile?.subscription_status !== 'active' && (
+              {profile?.subscription_status !== 'active' ? (
                 <button
                   onClick={openUpgrade}
                   className="px-5 py-2.5 amber-gradient text-white font-semibold text-sm rounded-lg shadow-sm active:scale-95 transition-all"
                 >
                   Upgrade Plan
                 </button>
+              ) : (
+                <button
+                  onClick={() => setCancelConfirm(true)}
+                  className="px-4 py-2 text-sm font-medium text-error border border-error/30 rounded-lg hover:bg-error-container/20 transition-colors"
+                >
+                  Cancel subscription
+                </button>
               )}
             </div>
+
+            {/* Cancel confirmation */}
+            {cancelConfirm && (
+              <div className="mt-5 rounded-xl border border-error/20 bg-error-container/10 p-4">
+                <p className="text-sm font-semibold text-on-surface mb-1">Cancel your Pro subscription?</p>
+                <p className="text-xs text-on-surface-variant mb-4">
+                  You'll keep Pro access until the end of your current billing period. After that, you'll be limited to 5 estimates.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setCancelConfirm(false)}
+                    disabled={canceling}
+                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50"
+                  >
+                    Keep Pro
+                  </button>
+                  <button
+                    onClick={() => void handleCancelSubscription()}
+                    disabled={canceling}
+                    className="flex-1 py-2 text-sm font-bold rounded-lg bg-error text-white hover:bg-error/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {canceling && <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>}
+                    {canceling ? 'Canceling…' : 'Yes, cancel'}
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
           {error && (
@@ -302,5 +352,6 @@ export default function SettingsPage() {
         </div>
       </div>
     </SharedLayout>
+    {showProModal && <ProWelcomeModal onClose={() => setShowProModal(false)} />}
   );
 }

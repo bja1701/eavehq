@@ -91,6 +91,19 @@ export default function SharedLayout({ children }: Props) {
               Admin
             </button>
           )}
+          {/* User name/email pill */}
+          {profile && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-low">
+              <div className="w-6 h-6 rounded-full amber-gradient flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-[10px] font-bold">
+                  {(profile.full_name ?? profile.email ?? '?')[0].toUpperCase()}
+                </span>
+              </div>
+              <span className="text-sm font-medium text-on-surface max-w-[140px] truncate">
+                {profile.full_name ?? profile.email ?? 'Account'}
+              </span>
+            </div>
+          )}
           <button
             onClick={signOut}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all"
@@ -151,27 +164,43 @@ export default function SharedLayout({ children }: Props) {
           })}
         </nav>
 
-        {/* Bottom: free tier usage (when applicable) */}
-        {profile && profile.subscription_status !== 'active' && (
+        {/* Bottom: plan status */}
+        {profile && (
           <div className="px-4 pb-6 pt-4 border-t border-slate-200/60 mt-auto">
-            <div className="bg-surface-container rounded-xl p-3">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[10px] font-label uppercase tracking-wider text-secondary font-bold">Free Tier</span>
-                <span className="text-xs font-bold text-on-surface">{profile.estimates_used ?? 0} / 5</span>
+            {profile.subscription_status === 'active' ? (
+              <div className="rounded-xl p-3" style={{ background: 'linear-gradient(135deg,#1e2d45,#0f1729)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-amber-400 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                  <span className="text-[10px] font-label uppercase tracking-wider text-amber-400 font-bold">Pro Plan</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Unlimited estimates · Active</p>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="mt-2 w-full text-center text-[10px] font-bold text-slate-500 hover:text-slate-400 transition-colors"
+                >
+                  Manage plan →
+                </button>
               </div>
-              <div className="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="amber-gradient h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(100, ((profile.estimates_used ?? 0) / 5) * 100)}%` }}
-                />
+            ) : (
+              <div className="bg-surface-container rounded-xl p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] font-label uppercase tracking-wider text-secondary font-bold">Free Tier</span>
+                  <span className="text-xs font-bold text-on-surface">{profile.estimates_used ?? 0} / 5</span>
+                </div>
+                <div className="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="amber-gradient h-full rounded-full transition-all"
+                    style={{ width: `${Math.min(100, ((profile.estimates_used ?? 0) / 5) * 100)}%` }}
+                  />
+                </div>
+                <button
+                  onClick={openUpgrade}
+                  className="mt-3 w-full text-center text-[10px] font-bold text-amber-500 hover:text-amber-400 transition-colors uppercase tracking-wider"
+                >
+                  Upgrade →
+                </button>
               </div>
-              <button
-                onClick={openUpgrade}
-                className="mt-3 w-full text-center text-[10px] font-bold text-amber-500 hover:text-amber-400 transition-colors uppercase tracking-wider"
-              >
-                Upgrade →
-              </button>
-            </div>
+            )}
           </div>
         )}
       </aside>
