@@ -17,12 +17,16 @@ export default function UpgradeModal() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('create-checkout-session');
+      // Explicitly pass the JWT so the Edge Function receives it
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not signed in. Please refresh and try again.');
+
+      const { data, error: fnError } = await supabase.functions.invoke('create-checkout-session', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
       if (fnError) {
-        // Try to extract the actual error body from the function response
         let message = fnError.message;
         try {
-          // FunctionsHttpError exposes the raw Response on .context
           const body = await (fnError as any).context?.json?.();
           if (body?.error) message = body.error;
         } catch { /* ignore parse failure */ }
