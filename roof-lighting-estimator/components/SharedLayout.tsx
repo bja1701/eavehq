@@ -152,7 +152,7 @@ export default function SharedLayout({ children }: Props) {
         </nav>
 
         {/* Bottom: free tier usage (when applicable) */}
-        {profile?.subscription_status !== 'active' && (
+        {profile && profile.subscription_status !== 'active' && (
           <div className="px-4 pb-6 pt-4 border-t border-slate-200/60 mt-auto">
             <div className="bg-surface-container rounded-xl p-3">
               <div className="flex justify-between items-center mb-2">
