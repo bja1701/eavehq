@@ -11,6 +11,7 @@ import AdminPage from './pages/AdminPage';
 import WelcomeModal from './components/WelcomeModal';
 import UpgradeModal from './components/UpgradeModal';
 import FeedbackButton from './components/FeedbackButton';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 function AppRoutes() {
   const { session, loading: authLoading, init } = useAuth();
@@ -44,6 +45,10 @@ function AppRoutes() {
   }
 
   if (!session) {
+    // Allow reset-password page without a session (Supabase sets session from URL hash)
+    if (window.location.pathname === '/auth/reset-password') {
+      return <ResetPasswordPage />;
+    }
     return (
       <AuthPage
         onSuccess={() => {}}
@@ -60,6 +65,7 @@ function AppRoutes() {
         <Route path="/estimator" element={<EstimatorRouteGuard />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

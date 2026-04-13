@@ -10,6 +10,7 @@ interface Props {
 
 export default function AuthPage({ onSuccess, onNewUser }: Props) {
   const [tab, setTab] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'auth' | 'forgot' | 'forgot-sent'>('auth');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -17,6 +18,18 @@ export default function AuthPage({ onSuccess, onNewUser }: Props) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checkEmail, setCheckEmail] = useState(false);
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    });
+    setSubmitting(false);
+    if (err) { setError(err.message); return; }
+    setMode('forgot-sent');
+  };
 
   const { signIn, signUp } = useAuth();
   const { fetchProfile } = useProfile();
@@ -45,6 +58,83 @@ export default function AuthPage({ onSuccess, onNewUser }: Props) {
   const inputNoPrefixCls = 'w-full px-4 py-3 bg-surface-container-low border-none rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-container text-on-surface text-sm placeholder:text-outline/50 transition-all';
   const labelCls = 'block text-[11px] font-label font-bold uppercase tracking-wider text-on-surface-variant mb-1.5';
 
+  // ── Forgot password: sent screen ─────────────────────────────────────────
+  if (mode === 'forgot-sent') {
+    return (
+      <div className="fixed inset-0 bg-inverse-surface flex items-center justify-center z-50 px-4 overflow-hidden">
+        <div className="w-full max-w-sm text-center relative z-10">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 amber-gradient rounded-xl shadow-xl flex items-center justify-center mb-4 border border-white/10">
+              <span className="material-symbols-outlined text-white text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>lock_reset</span>
+            </div>
+            <h1 className="font-headline font-extrabold text-3xl tracking-tight text-white mb-1">Check your email</h1>
+            <p className="text-surface-variant font-label uppercase tracking-[0.2em] text-[10px]">Password Reset</p>
+          </div>
+          <div className="bg-surface-container-lowest rounded-xl shadow-2xl p-8">
+            <p className="text-on-surface-variant text-sm mb-1">We sent a reset link to</p>
+            <p className="text-on-surface font-semibold text-sm mb-4">{email}</p>
+            <p className="text-on-surface-variant text-xs mb-6 leading-relaxed">
+              Click the link in that email to choose a new password. Check your spam folder if you don't see it.
+            </p>
+            <button
+              onClick={() => { setMode('auth'); setTab('login'); }}
+              className="w-full py-3 bg-surface-container-low text-primary font-headline font-bold rounded-lg hover:bg-surface-container transition-colors"
+            >
+              Back to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Forgot password: email entry screen ───────────────────────────────────
+  if (mode === 'forgot') {
+    return (
+      <div className="fixed inset-0 bg-inverse-surface flex items-center justify-center z-50 px-4 overflow-hidden">
+        <div className="relative z-10 w-full max-w-lg">
+          <div className="flex flex-col items-center mb-10">
+            <div className="w-16 h-16 amber-gradient rounded-xl shadow-xl flex items-center justify-center mb-4 border border-white/10">
+              <svg className="w-9 h-9 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M12 2L1 9l2 1.5V20h18V10.5L23 9 12 2zm0 2.5L20 10v8H4v-8l8-5.5z" />
+                <rect x="9" y="14" width="6" height="6" rx="0.5" />
+              </svg>
+            </div>
+            <h1 className="font-headline font-extrabold text-3xl tracking-tight text-white mb-2">Reset password</h1>
+            <p className="text-surface-variant font-label uppercase tracking-[0.2em] text-[10px]">We'll send you a link</p>
+          </div>
+          <div className="bg-surface-container-lowest rounded-xl shadow-2xl overflow-hidden border border-white/5">
+            <div className="px-8 py-8">
+              <form onSubmit={handleForgotPassword} className="space-y-5">
+                <div>
+                  <label className={labelCls} htmlFor="reset-email">Email Address</label>
+                  <div className="relative">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                    </svg>
+                    <input id="reset-email" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="john@contractor.com" className={inputCls} />
+                  </div>
+                </div>
+                {error && (
+                  <div className="bg-error-container/30 border-l-4 border-error p-3 rounded-r-lg">
+                    <p className="text-sm text-error font-medium">{error}</p>
+                  </div>
+                )}
+                <button type="submit" disabled={submitting} className="w-full amber-gradient text-white font-headline font-bold py-4 rounded-lg shadow-lg disabled:opacity-60">
+                  {submitting ? 'Sending…' : 'Send reset link'}
+                </button>
+                <button type="button" onClick={() => { setMode('auth'); setError(''); }} className="w-full text-sm text-on-surface-variant hover:text-on-surface transition-colors">
+                  ← Back to Sign In
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Sign-up "check email" screen ──────────────────────────────────────────
   if (checkEmail) {
     return (
       <div className="fixed inset-0 bg-inverse-surface flex items-center justify-center z-50 px-4 overflow-hidden">
@@ -64,7 +154,7 @@ export default function AuthPage({ onSuccess, onNewUser }: Props) {
             <p className="text-on-surface-variant text-sm mb-1">We sent a confirmation link to</p>
             <p className="text-on-surface font-semibold text-sm mb-4">{email}</p>
             <p className="text-on-surface-variant text-xs mb-6 leading-relaxed">
-              Click the link in that email to activate your account and get started with 5 free estimates.
+              Click the link in that email to activate your account. If this email is already registered, use Sign In or reset your password instead.
             </p>
             <button
               onClick={() => { setCheckEmail(false); setTab('login'); }}
@@ -146,7 +236,7 @@ export default function AuthPage({ onSuccess, onNewUser }: Props) {
               <div>
                 <div className="flex justify-between items-center mb-1.5">
                   <label className={labelCls} htmlFor="auth-password">Password</label>
-                  {tab === 'login' && <a href="#" className="text-[11px] font-bold text-primary hover:underline">Forgot?</a>}
+                  {tab === 'login' && <button type="button" onClick={() => { setMode('forgot'); setError(''); }} className="text-[11px] font-bold text-primary hover:underline">Forgot?</button>}
                 </div>
                 <div className="relative">
                   <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
