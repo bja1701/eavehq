@@ -72,7 +72,7 @@ serve(async (req) => {
     // when Stripe actually terminates the subscription.
     await supabaseAdmin
       .from('profiles')
-      .update({ subscription_status: 'canceling' })
+      .update({ subscription_status: 'canceling', subscription_tier: 'canceling' })
       .eq('id', user.id);
 
     return new Response(JSON.stringify({ ok: true }), {

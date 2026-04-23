@@ -9,7 +9,7 @@ interface UserRow {
   full_name: string | null;
   company_name: string | null;
   email: string | null;
-  subscription_tier: 'free' | 'retainer' | 'paid';
+  subscription_tier: 'free' | 'active' | 'canceling' | 'canceled';
   estimates_used: number;
   role: 'user' | 'admin';
   created_at: string;
@@ -59,8 +59,9 @@ export default function AdminPage() {
   const stats = {
     total: users.length,
     free: users.filter(u => u.subscription_tier === 'free').length,
-    retainer: users.filter(u => u.subscription_tier === 'retainer').length,
-    paid: users.filter(u => u.subscription_tier === 'paid').length,
+    active: users.filter(u => u.subscription_tier === 'active').length,
+    canceling: users.filter(u => u.subscription_tier === 'canceling').length,
+    canceled: users.filter(u => u.subscription_tier === 'canceled').length,
   };
 
   const tierChip = (tier: string) => {
@@ -91,8 +92,8 @@ export default function AdminPage() {
           {[
             { label: 'Total Users', value: stats.total, cls: 'text-on-surface' },
             { label: 'Free Tier', value: stats.free, cls: 'text-on-surface-variant' },
-            { label: 'Retainer', value: stats.retainer, cls: 'text-tertiary' },
-            { label: 'Paid', value: stats.paid, cls: 'text-secondary' },
+            { label: 'Active', value: stats.active, cls: 'text-tertiary' },
+            { label: 'Canceled', value: stats.canceled, cls: 'text-secondary' },
           ].map(s => (
             <div key={s.label} className="bg-surface-container-lowest rounded-xl p-6 shadow-sm border border-outline-variant/10">
               <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant mb-2">{s.label}</p>
@@ -145,8 +146,8 @@ export default function AdminPage() {
                         className="bg-surface-container-low border-none rounded-lg px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary-container transition-all"
                       >
                         <option value="free">Free</option>
-                        <option value="retainer">Retainer</option>
-                        <option value="paid">Paid</option>
+                        <option value="active">Active</option>
+                        <option value="canceled">Canceled</option>
                       </select>
                     </td>
                     <td className="px-5 py-4 text-on-surface">{u.estimates_used}</td>

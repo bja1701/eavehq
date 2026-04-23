@@ -55,6 +55,7 @@ serve(async (req) => {
         .from('profiles')
         .update({
           subscription_status: 'active',
+          subscription_tier: 'active',
           stripe_customer_id: customerId ?? null,
           stripe_subscription_id: subscriptionId ?? null,
         })
@@ -77,12 +78,12 @@ serve(async (req) => {
     if (subscription.status === 'active' && subscription.cancel_at_period_end) {
       await supabase
         .from('profiles')
-        .update({ subscription_status: 'canceling' })
+        .update({ subscription_status: 'canceling', subscription_tier: 'canceling' })
         .eq('stripe_customer_id', customerId);
     } else if (subscription.status === 'active' && !subscription.cancel_at_period_end) {
       await supabase
         .from('profiles')
-        .update({ subscription_status: 'active' })
+        .update({ subscription_status: 'active', subscription_tier: 'active' })
         .eq('stripe_customer_id', customerId);
     }
     // All other Stripe statuses (past_due, unpaid, incomplete, etc.): no-op.
@@ -99,7 +100,7 @@ serve(async (req) => {
 
     await supabase
       .from('profiles')
-      .update({ subscription_status: 'canceled' })
+      .update({ subscription_status: 'canceled', subscription_tier: 'canceled' })
       .eq('stripe_customer_id', customerId);
   }
 
