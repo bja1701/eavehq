@@ -56,7 +56,7 @@ export default function SaveToJobModal({ onSaved, onClose }: Props) {
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
 
-  const atLimit = profile?.subscription_tier === 'free' && (profile?.estimates_used ?? 0) >= 5;
+  const atLimit = profile?.subscription_status === 'free' && (profile?.estimates_used ?? 0) >= 5;
 
   useEffect(() => { fetchJobs(); }, []);
 

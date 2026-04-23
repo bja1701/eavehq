@@ -70,10 +70,18 @@ serve(async (req) => {
     // Set 'canceling' — user keeps Pro access until period ends.
     // The webhook (customer.subscription.deleted) will flip to 'canceled'
     // when Stripe actually terminates the subscription.
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from('profiles')
-      .update({ subscription_status: 'canceling', subscription_tier: 'canceling' })
+      .update({ subscription_status: 'canceling' })
       .eq('id', user.id);
+
+    if (updateError) {
+      console.error('Failed to update profile:', updateError);
+      return new Response(JSON.stringify({ error: 'Failed to update subscription status' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

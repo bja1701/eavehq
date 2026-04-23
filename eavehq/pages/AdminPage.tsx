@@ -9,7 +9,7 @@ interface UserRow {
   full_name: string | null;
   company_name: string | null;
   email: string | null;
-  subscription_tier: 'free' | 'active' | 'canceling' | 'canceled';
+  subscription_status: 'free' | 'active' | 'canceling' | 'canceled';
   estimates_used: number;
   role: 'user' | 'admin';
   created_at: string;
@@ -49,19 +49,19 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const handleTierChange = async (userId: string, tier: UserRow['subscription_tier']) => {
+  const handleTierChange = async (userId: string, tier: UserRow['subscription_status']) => {
     setSavingId(userId);
-    await supabase.from('profiles').update({ subscription_tier: tier }).eq('id', userId);
-    setUsers(u => u.map(x => x.id === userId ? { ...x, subscription_tier: tier } : x));
+    await supabase.from('profiles').update({ subscription_status: tier }).eq('id', userId);
+    setUsers(u => u.map(x => x.id === userId ? { ...x, subscription_status: tier } : x));
     setSavingId(null);
   };
 
   const stats = {
     total: users.length,
-    free: users.filter(u => u.subscription_tier === 'free').length,
-    active: users.filter(u => u.subscription_tier === 'active').length,
-    canceling: users.filter(u => u.subscription_tier === 'canceling').length,
-    canceled: users.filter(u => u.subscription_tier === 'canceled').length,
+    free: users.filter(u => u.subscription_status === 'free').length,
+    active: users.filter(u => u.subscription_status === 'active').length,
+    canceling: users.filter(u => u.subscription_status === 'canceling').length,
+    canceled: users.filter(u => u.subscription_status === 'canceled').length,
   };
 
   const tierChip = (tier: string) => {
@@ -140,8 +140,8 @@ export default function AdminPage() {
                     <td className="px-5 py-4 text-on-surface-variant">{u.company_name ?? '—'}</td>
                     <td className="px-5 py-4">
                       <select
-                        value={u.subscription_tier}
-                        onChange={e => handleTierChange(u.id, e.target.value as UserRow['subscription_tier'])}
+                        value={u.subscription_status}
+                        onChange={e => handleTierChange(u.id, e.target.value as UserRow['subscription_status'])}
                         disabled={savingId === u.id}
                         className="bg-surface-container-low border-none rounded-lg px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary-container transition-all"
                       >

@@ -88,7 +88,7 @@ const EstimatorPage: React.FC = () => {
 
             <button
               onClick={() => setShowSaveModal(true)}
-              disabled={profile?.subscription_tier === 'free' && (profile?.estimates_used ?? 0) >= 5}
+              disabled={profile?.subscription_status === 'free' && (profile?.estimates_used ?? 0) >= 5}
               className="px-4 py-1.5 text-xs font-headline font-bold amber-gradient text-white rounded-lg shadow-sm active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save Estimate

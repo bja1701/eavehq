@@ -13,7 +13,6 @@ export interface Profile {
   price_per_foot: number;
   controller_fee: number;
   include_controller: boolean;
-  subscription_tier: 'free' | 'active' | 'canceling' | 'canceled';
   subscription_status: 'free' | 'active' | 'canceling' | 'canceled';
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
