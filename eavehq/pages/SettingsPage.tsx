@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useProfile } from '../hooks/useProfile';
 import { useUpgradeModal } from '../hooks/useUpgradeModal';
 import SharedLayout from '../components/SharedLayout';
 import ProWelcomeModal from '../components/ProWelcomeModal';
+import { hasProAccess } from '../utils/estimatorAccess';
 
 const labelCls = 'block text-[11px] font-label font-bold uppercase tracking-wider text-on-surface-variant mb-1.5';
 const inputCls = 'w-full px-4 py-3 bg-surface-container-low border-none rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-container text-on-surface text-sm placeholder:text-outline/50 transition-all';
@@ -18,7 +19,7 @@ function formatMaxLogoMb() {
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const { profile, updateProfile } = useProfile();
+  const { profile, fetchProfile, updateProfile } = useProfile();
   const { open: openUpgrade } = useUpgradeModal();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -26,6 +27,48 @@ export default function SettingsPage() {
   const [showProModal, setShowProModal] = useState(upgradeSuccess);
   const [canceling, setCanceling] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
+  // BUG 4: track whether we're waiting for the webhook to activate the subscription
+  const [pendingActivation, setPendingActivation] = useState(upgradeSuccess);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // BUG 4: Poll until subscription_status flips to 'active' (up to 15s / 7 attempts).
+  // Stops automatically once active, or shows a fallback message after timeout.
+  useEffect(() => {
+    if (!upgradeSuccess || !user) return;
+    if (profile?.subscription_status === 'active') {
+      setPendingActivation(false);
+      return;
+    }
+
+    let attempts = 0;
+    const MAX_ATTEMPTS = 7;
+
+    pollRef.current = setInterval(async () => {
+      attempts++;
+      await fetchProfile(user.id);
+      // fetchProfile updates the store; the next render will re-evaluate
+      if (attempts >= MAX_ATTEMPTS) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setPendingActivation(false); // give up, show fallback message
+      }
+    }, 2000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+    // Only start polling once on mount when upgradeSuccess is true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upgradeSuccess, user]);
+
+  // Stop polling as soon as the profile flips to active
+  useEffect(() => {
+    if (profile?.subscription_status === 'active' && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+      setPendingActivation(false);
+    }
+  }, [profile?.subscription_status]);
 
   const handleCancelSubscription = async () => {
     setCanceling(true);
@@ -39,9 +82,23 @@ export default function SettingsPage() {
       setError('Failed to cancel subscription. Please try again or contact support.');
       return;
     }
-    // Profile will reflect canceled state on next fetch
+    // Profile will reflect canceling state on next fetch
     window.location.reload();
   };
+
+  // BUG 5: Open Stripe Customer Portal for payment method / invoice management
+  const handleManageBilling = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data, error: fnError } = await supabase.functions.invoke('create-portal-session', {
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+      body: { returnUrl: window.location.origin },
+    });
+    if (fnError || !data?.url) {
+      setError('Could not open billing portal. Please try again or contact support.');
+      return;
+    }
+    window.location.href = data.url;
+  }, []);
 
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -269,62 +326,95 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-on-surface flex items-center gap-2">
-                  {profile?.subscription_status === 'active' && (
-                    <span className="material-symbols-outlined text-amber-500 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
-                  )}
-                  {profile?.subscription_status === 'active' ? 'Pro Plan' : 'Free Plan'}
-                </div>
-                <div className="text-xs text-on-surface-variant mt-0.5">
-                  {profile?.subscription_status === 'active'
-                    ? 'Unlimited estimates · $89/month'
-                    : `${profile?.estimates_used ?? 0} of 5 free estimates used`}
-                </div>
+            {/* BUG 4: Pending activation spinner — shown while polling after ?upgrade=success */}
+            {pendingActivation ? (
+              <div className="flex items-center gap-3 py-2">
+                <span className="material-symbols-outlined animate-spin text-amber-500 text-base">progress_activity</span>
+                <span className="text-sm text-on-surface-variant">Activating your plan…</span>
               </div>
-              {profile?.subscription_status !== 'active' ? (
-                <button
-                  onClick={openUpgrade}
-                  className="px-5 py-2.5 amber-gradient text-white font-semibold text-sm rounded-lg shadow-sm active:scale-95 transition-all"
-                >
-                  Upgrade Plan
-                </button>
-              ) : (
-                <button
-                  onClick={() => setCancelConfirm(true)}
-                  className="px-4 py-2 text-sm font-medium text-error border border-error/30 rounded-lg hover:bg-error-container/20 transition-colors"
-                >
-                  Cancel subscription
-                </button>
-              )}
-            </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-on-surface flex items-center gap-2">
+                      {hasProAccess(profile) && (
+                        <span className="material-symbols-outlined text-amber-500 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                      )}
+                      {hasProAccess(profile) ? 'Pro Plan' : 'Free Plan'}
+                    </div>
+                    <div className="text-xs text-on-surface-variant mt-0.5">
+                      {profile?.subscription_status === 'active' && 'Unlimited estimates · $89/month'}
+                      {profile?.subscription_status === 'canceling' && 'Cancels at end of billing period · still have full access'}
+                      {!hasProAccess(profile) && `${profile?.estimates_used ?? 0} of 5 free estimates used`}
+                    </div>
+                    {/* BUG 4: Fallback message if polling timed out without activation */}
+                    {upgradeSuccess && profile?.subscription_status !== 'active' && profile?.subscription_status !== 'canceling' && (
+                      <p className="text-xs text-on-surface-variant mt-1">
+                        If your plan doesn't appear active within a minute, contact support.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    {!hasProAccess(profile) ? (
+                      <button
+                        onClick={openUpgrade}
+                        className="px-5 py-2.5 amber-gradient text-white font-semibold text-sm rounded-lg shadow-sm active:scale-95 transition-all"
+                      >
+                        Upgrade Plan
+                      </button>
+                    ) : (
+                      <>
+                        {/* BUG 5: Stripe Customer Portal — manage payment method & invoices */}
+                        <button
+                          onClick={() => void handleManageBilling()}
+                          className="px-4 py-2 text-sm font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors"
+                        >
+                          Manage billing
+                        </button>
+                        {/* Only show cancel option when not already canceling */}
+                        {profile?.subscription_status === 'active' && (
+                          <button
+                            onClick={() => setCancelConfirm(true)}
+                            className="px-4 py-2 text-sm font-medium text-error border border-error/30 rounded-lg hover:bg-error-container/20 transition-colors"
+                          >
+                            Cancel subscription
+                          </button>
+                        )}
+                        {profile?.subscription_status === 'canceling' && (
+                          <span className="text-xs text-on-surface-variant italic">Cancellation pending</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
 
-            {/* Cancel confirmation */}
-            {cancelConfirm && (
-              <div className="mt-5 rounded-xl border border-error/20 bg-error-container/10 p-4">
-                <p className="text-sm font-semibold text-on-surface mb-1">Cancel your Pro subscription?</p>
-                <p className="text-xs text-on-surface-variant mb-4">
-                  You'll keep Pro access until the end of your current billing period. After that, you'll be limited to 5 estimates.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setCancelConfirm(false)}
-                    disabled={canceling}
-                    className="flex-1 py-2 text-sm font-medium rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50"
-                  >
-                    Keep Pro
-                  </button>
-                  <button
-                    onClick={() => void handleCancelSubscription()}
-                    disabled={canceling}
-                    className="flex-1 py-2 text-sm font-bold rounded-lg bg-error text-white hover:bg-error/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {canceling && <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>}
-                    {canceling ? 'Canceling…' : 'Yes, cancel'}
-                  </button>
-                </div>
-              </div>
+                {/* Cancel confirmation */}
+                {cancelConfirm && (
+                  <div className="mt-5 rounded-xl border border-error/20 bg-error-container/10 p-4">
+                    <p className="text-sm font-semibold text-on-surface mb-1">Cancel your Pro subscription?</p>
+                    <p className="text-xs text-on-surface-variant mb-4">
+                      You'll keep Pro access until the end of your current billing period. After that, you'll be limited to 5 estimates.
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setCancelConfirm(false)}
+                        disabled={canceling}
+                        className="flex-1 py-2 text-sm font-medium rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50"
+                      >
+                        Keep Pro
+                      </button>
+                      <button
+                        onClick={() => void handleCancelSubscription()}
+                        disabled={canceling}
+                        className="flex-1 py-2 text-sm font-bold rounded-lg bg-error text-white hover:bg-error/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {canceling && <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>}
+                        {canceling ? 'Canceling…' : 'Yes, cancel'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
