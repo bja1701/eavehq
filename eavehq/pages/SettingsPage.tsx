@@ -7,6 +7,12 @@ import SharedLayout from '../components/SharedLayout';
 import ProWelcomeModal from '../components/ProWelcomeModal';
 import { hasProAccess } from '../utils/estimatorAccess';
 
+interface ConnectStatus {
+  connected: boolean;
+  charges_enabled: boolean;
+  payouts_enabled?: boolean;
+}
+
 const labelCls = 'block text-[11px] font-label font-bold uppercase tracking-wider text-on-surface-variant mb-1.5';
 const inputCls = 'w-full px-4 py-3 bg-surface-container-low border-none rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-container text-on-surface text-sm placeholder:text-outline/50 transition-all';
 
@@ -23,8 +29,15 @@ export default function SettingsPage() {
   const { open: openUpgrade } = useUpgradeModal();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const upgradeSuccess = new URLSearchParams(window.location.search).get('upgrade') === 'success';
+  const searchParams = new URLSearchParams(window.location.search);
+  const upgradeSuccess = searchParams.get('upgrade') === 'success';
+  const stripeParam = searchParams.get('stripe');
+
   const [showProModal, setShowProModal] = useState(upgradeSuccess);
+  const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
+  const [connectLoading, setConnectLoading] = useState(true);
+  const [connectLinking, setConnectLinking] = useState(false);
+  const [connectToast, setConnectToast] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   // BUG 4: track whether we're waiting for the webhook to activate the subscription
@@ -84,6 +97,46 @@ export default function SettingsPage() {
     }
     // Profile will reflect canceling state on next fetch
     window.location.reload();
+  };
+
+  const checkConnectStatus = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data, error: fnError } = await supabase.functions.invoke('check-connect-status', {
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    });
+    if (!fnError && data) {
+      setConnectStatus(data as ConnectStatus);
+    }
+    setConnectLoading(false);
+  }, []);
+
+  useEffect(() => { void checkConnectStatus(); }, [checkConnectStatus]);
+
+  useEffect(() => {
+    if (stripeParam === 'success') {
+      void checkConnectStatus().then(() => {
+        setConnectToast(true);
+        setTimeout(() => setConnectToast(false), 4000);
+      });
+    } else if (stripeParam === 'refresh') {
+      void checkConnectStatus();
+    }
+  // Only run on mount — stripeParam is derived from initial URL
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleConnectStripe = async () => {
+    setConnectLinking(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data, error: fnError } = await supabase.functions.invoke('create-connect-link', {
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    });
+    setConnectLinking(false);
+    if (fnError || !data?.url) {
+      setError('Could not start Stripe onboarding. Please try again.');
+      return;
+    }
+    window.location.href = data.url;
   };
 
   // BUG 5: Open Stripe Customer Portal for payment method / invoice management
@@ -312,6 +365,85 @@ export default function SettingsPage() {
                 <span className="text-sm text-on-surface">Include controller by default</span>
               </div>
             </div>
+          </section>
+
+          {/* Payments — Stripe Connect */}
+          <section className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 p-8">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 bg-primary-container/10 rounded-lg flex items-center justify-center">
+                <span className="material-symbols-outlined text-primary-container text-base">credit_card</span>
+              </div>
+              <div>
+                <h2 className="font-headline font-bold text-on-surface">Payments</h2>
+                <p className="text-xs text-on-surface-variant">Receive client deposits directly into your account</p>
+              </div>
+            </div>
+
+            {connectToast && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800 font-medium">
+                <span className="material-symbols-outlined text-base text-green-600">check_circle</span>
+                Stripe account connected successfully.
+              </div>
+            )}
+
+            {connectLoading ? (
+              <div className="flex items-center gap-2 text-sm text-on-surface-variant py-2">
+                <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                Checking status…
+              </div>
+            ) : connectStatus?.charges_enabled ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-on-surface">
+                    <span className="material-symbols-outlined text-green-600 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                    Stripe Connected
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-0.5">You're set up to accept payments. Clients pay directly to your account.</p>
+                </div>
+                <a
+                  href="https://dashboard.stripe.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 text-sm font-medium text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors flex items-center gap-1.5"
+                >
+                  Manage on Stripe
+                  <span className="material-symbols-outlined text-sm">open_in_new</span>
+                </a>
+              </div>
+            ) : connectStatus?.connected ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-on-surface">
+                    <span className="material-symbols-outlined text-amber-500 text-base">warning</span>
+                    Stripe Setup Incomplete
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-0.5">Finish setting up your Stripe account to start accepting payments.</p>
+                </div>
+                <button
+                  onClick={() => void handleConnectStripe()}
+                  disabled={connectLinking}
+                  className="px-4 py-2 text-sm font-semibold text-white amber-gradient rounded-lg shadow-sm active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  {connectLinking && <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>}
+                  {connectLinking ? 'Opening…' : 'Continue Setup'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">Accept Client Payments</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">Connect your Stripe account to receive deposits and final payments directly from your clients.</p>
+                </div>
+                <button
+                  onClick={() => void handleConnectStripe()}
+                  disabled={connectLinking}
+                  className="px-4 py-2 text-sm font-semibold text-white amber-gradient rounded-lg shadow-sm active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  {connectLinking && <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>}
+                  {connectLinking ? 'Opening…' : 'Connect Stripe Account'}
+                </button>
+              </div>
+            )}
           </section>
 
           {/* Plan & Billing */}

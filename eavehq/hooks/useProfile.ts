@@ -16,6 +16,8 @@ export interface Profile {
   subscription_status: 'free' | 'active' | 'canceling' | 'canceled';
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  stripe_account_id: string | null;
+  stripe_connect_enabled: boolean;
   estimates_used: number;
   welcome_shown: boolean;
   role: 'user' | 'admin';

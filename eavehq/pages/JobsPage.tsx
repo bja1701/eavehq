@@ -3,8 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import SharedLayout from '../components/SharedLayout';
 import NewJobModal from '../components/NewJobModal';
+import SetupChecklist from '../components/SetupChecklist';
 import { streetViewStaticImageUrl } from '../utils/streetViewStatic';
 import JobStatusBadge from '../components/JobStatusBadge';
+import { useProfile } from '../hooks/useProfile';
 import { Job } from '../types/job';
 
 /** Street View Static thumbnail from job address, or placeholder when missing / unavailable. */
@@ -54,6 +56,7 @@ export default function JobsPage() {
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
   const navigate = useNavigate();
   const location = useLocation();
+  const { profile } = useProfile();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
@@ -125,6 +128,7 @@ export default function JobsPage() {
   return (
     <SharedLayout>
       <div className="px-6 md:px-10 py-10 max-w-6xl mx-auto">
+        <SetupChecklist profile={profile} />
         {estimateLimitBanner && (
           <div
             role="status"

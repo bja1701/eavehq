@@ -254,6 +254,27 @@ export default function JobDetailPage() {
               );
             }
 
+            if (!profile?.stripe_connect_enabled) {
+              return (
+                <div className="rounded-lg border border-outline-variant/20 bg-surface-container-low p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-on-surface">
+                    <span className="material-symbols-outlined text-amber-500 text-base">warning</span>
+                    Connect Stripe to activate client payments
+                  </div>
+                  <p className="text-xs text-on-surface-variant">
+                    Clients can't pay until your Stripe account is set up.
+                  </p>
+                  <a
+                    href="/settings"
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+                  >
+                    Connect Stripe
+                    <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                  </a>
+                </div>
+              );
+            }
+
             const portalUrl = `${window.location.origin}/quote/${job.portal_token}`;
             return (
               <div className="space-y-3">
