@@ -27,6 +27,8 @@ export interface Job {
   client_name: string | null;
   client_email: string | null;
   client_phone: string | null;
+  // Phase 1 — client portal
+  portal_token: string | null;
   // Joined from quotes(count) in list queries
   quote_count?: number;
 }
