@@ -12,6 +12,8 @@ import WelcomeModal from './components/WelcomeModal';
 import UpgradeModal from './components/UpgradeModal';
 import FeedbackButton from './components/FeedbackButton';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import ClientPortalPage from './pages/ClientPortalPage';
+import ClientPortalSuccessPage from './pages/ClientPortalSuccessPage';
 
 function AppRoutes() {
   const { session, loading: authLoading, init } = useAuth();
@@ -35,6 +37,17 @@ function AppRoutes() {
       setShowWelcome(true);
     }
   }, [profile?.id]);
+
+  // Public portal routes — no auth required, token is the access control
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/quote/')) {
+    return (
+      <Routes>
+        <Route path="/quote/:token" element={<ClientPortalPage />} />
+        <Route path="/quote/:token/success" element={<ClientPortalSuccessPage />} />
+      </Routes>
+    );
+  }
 
   if (!authDone || authLoading) {
     return (

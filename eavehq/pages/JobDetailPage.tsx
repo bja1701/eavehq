@@ -7,7 +7,6 @@ import SharedLayout from '../components/SharedLayout';
 import QuoteCard from '../components/QuoteCard';
 import ClientQuoteModal from '../components/ClientQuoteModal';
 import JobStatusBadge from '../components/JobStatusBadge';
-import PaymentSection from '../components/PaymentSection';
 import { Job, JobStatus } from '../types/job';
 
 interface Quote {
@@ -33,6 +32,7 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [clientQuoteOpen, setClientQuoteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleStatusChange = (newStatus: JobStatus) => {
     setJob(prev => prev ? { ...prev, status: newStatus } : prev);
@@ -40,6 +40,14 @@ export default function JobDetailPage() {
 
   const handleJobUpdate = (updates: Partial<Job>) => {
     setJob(prev => prev ? { ...prev, ...updates } : prev);
+  };
+
+  const handleCopyPortalLink = async () => {
+    if (!job?.portal_token) return;
+    const url = `${window.location.origin}/quote/${job.portal_token}`;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   useEffect(() => { if (id) fetchJobAndQuotes(id); }, [id]);
@@ -206,13 +214,68 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        {/* Payment Section */}
-        <div className="mb-12">
-          <PaymentSection
-            job={job}
-            onStatusChange={handleStatusChange}
-            onJobUpdate={handleJobUpdate}
-          />
+        {/* Client Portal */}
+        <div className="mb-12 bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-6 space-y-4">
+          <h2 className="font-headline font-bold text-lg text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary-container">share</span>
+            Client Portal
+          </h2>
+
+          {(() => {
+            const depositPaidStatuses: JobStatus[] = ['deposit_paid', 'scheduled', 'in_progress', 'complete', 'final_paid', 'reviewed'];
+            const isDepositPaid = depositPaidStatuses.includes(job.status);
+
+            if (isDepositPaid) {
+              return (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
+                    <span className="material-symbols-outlined text-sm">check_circle</span>
+                    Deposit received
+                    {job.deposit_paid_at && (
+                      <span className="font-normal">
+                        {' '}· {new Date(job.deposit_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </span>
+                  {job.deposit_amount != null && (
+                    <span className="text-sm font-semibold text-on-surface">
+                      ${job.deposit_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+
+            if (!job.portal_token) {
+              return (
+                <p className="text-sm text-on-surface-variant">
+                  No portal link available. Make sure a <code className="text-xs bg-surface-container px-1 py-0.5 rounded">portal_token</code> has been generated for this job.
+                </p>
+              );
+            }
+
+            const portalUrl = `${window.location.origin}/quote/${job.portal_token}`;
+            return (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 p-3 bg-surface-container-low rounded-lg">
+                  <span className="flex-1 text-sm text-on-surface font-mono truncate">{portalUrl}</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyPortalLink}
+                    className="flex items-center gap-1.5 bg-surface-container text-on-surface font-bold py-2 px-4 rounded-lg hover:bg-surface-container-high transition-colors text-sm"
+                  >
+                    <span className="material-symbols-outlined text-base">
+                      {copied ? 'check' : 'content_copy'}
+                    </span>
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </button>
+                </div>
+                <p className="text-xs text-on-surface-variant">
+                  Share this link with your client to let them choose an estimate and pay their deposit.
+                </p>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Quotes grid */}
