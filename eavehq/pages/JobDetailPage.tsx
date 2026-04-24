@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useProfile } from '../hooks/useProfile';
+import { useProfile, useProfileVisibilityRefetch } from '../hooks/useProfile';
 import { isFreeTierEstimatorExhausted } from '../utils/estimatorAccess';
 import SharedLayout from '../components/SharedLayout';
 import QuoteCard from '../components/QuoteCard';
@@ -27,6 +27,7 @@ export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { profile } = useProfile();
+  useProfileVisibilityRefetch();
   const [job, setJob] = useState<Job | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);

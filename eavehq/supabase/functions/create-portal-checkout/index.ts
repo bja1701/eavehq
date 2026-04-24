@@ -116,7 +116,19 @@ serve(async (req) => {
       console.warn(`create-portal-checkout: job ${job.id} owner has no Connect account — funds go to platform`);
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionParams);
+    } catch (stripeErr: unknown) {
+      const msg = stripeErr instanceof Error ? stripeErr.message : '';
+      if (msg.toLowerCase().includes('transfer_data') && sessionParams.transfer_data) {
+        console.warn('transfer_data rejected — Connect not enabled on platform. Retrying without it.');
+        delete sessionParams.transfer_data;
+        session = await stripe.checkout.sessions.create(sessionParams);
+      } else {
+        throw stripeErr;
+      }
+    }
 
     return new Response(JSON.stringify({ checkout_url: session.url }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

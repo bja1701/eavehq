@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { ensureProfileRowExists } from '../utils/ensureProfile';
@@ -27,6 +28,7 @@ interface ProfileState {
   profile: Profile | null;
   loading: boolean;
   fetchProfile: (userId: string) => Promise<void>;
+  refetchProfile: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: string | null }>;
   incrementEstimates: () => Promise<void>;
   markWelcomeShown: () => Promise<void>;
@@ -64,6 +66,12 @@ export const useProfile = create<ProfileState>((set, get) => ({
     }
   },
 
+  refetchProfile: async () => {
+    const { profile, fetchProfile } = get();
+    if (!profile) return;
+    await fetchProfile(profile.id);
+  },
+
   updateProfile: async (updates) => {
     const { profile } = get();
     if (!profile) return { error: 'Not authenticated' };
@@ -90,3 +98,25 @@ export const useProfile = create<ProfileState>((set, get) => ({
     await updateProfile({ welcome_shown: true });
   },
 }));
+
+/**
+ * Mount this hook in any component that needs the profile to stay fresh
+ * after the user returns from an external flow (e.g. Stripe Connect).
+ * It refetches the profile whenever the tab becomes visible again.
+ */
+export function useProfileVisibilityRefetch() {
+  const refetchProfile = useProfile((s) => s.refetchProfile);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        refetchProfile();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refetchProfile]);
+}
