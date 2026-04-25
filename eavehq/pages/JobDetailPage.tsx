@@ -84,6 +84,15 @@ export default function JobDetailPage() {
     if (!job || !id) return;
     const cfg = JOB_STATUS_CONFIG[job.status];
     if (!cfg.nextManualStatus) return;
+    if (
+      job.status === 'estimate_sent' &&
+      cfg.nextManualStatus === 'scheduled' &&
+      !job.deposit_paid_at &&
+      job.deposit_amount == null
+    ) {
+      const confirmed = window.confirm('No deposit recorded. Mark as Scheduled anyway?');
+      if (!confirmed) return;
+    }
     setAdvancingStatus(true);
     const { error } = await supabase.from('jobs').update({ status: cfg.nextManualStatus }).eq('id', id);
     setAdvancingStatus(false);
@@ -192,7 +201,9 @@ export default function JobDetailPage() {
             </nav>
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-5xl font-headline font-extrabold text-on-surface tracking-tight leading-none">{job.name}</h1>
-              <JobStatusBadge status={job.status ?? 'estimate_sent'} />
+              {job.status !== 'estimate_sent' && (
+                <JobStatusBadge status={job.status} />
+              )}
             </div>
             <div className="flex flex-wrap gap-5 items-center text-on-surface-variant">
               {job.address && (
@@ -317,17 +328,15 @@ export default function JobDetailPage() {
             )}
           </div>
 
-          {/* Final payment status */}
-          {job.status === 'final_paid' && (
+          {/* Final payment status — shown only when final_paid_at is actually set */}
+          {job.final_paid_at != null && (
             <div className="flex flex-wrap items-center gap-3">
               <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
                 <span className="material-symbols-outlined text-sm">check_circle</span>
                 Final payment received
-                {job.final_paid_at && (
-                  <span className="font-normal">
-                    {' '}· {new Date(job.final_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </span>
-                )}
+                <span className="font-normal">
+                  {' '}· {new Date(job.final_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
               </span>
               {job.final_amount != null && (
                 <span className="text-sm font-semibold text-on-surface">
@@ -338,20 +347,16 @@ export default function JobDetailPage() {
           )}
 
           {(() => {
-            const depositPaidStatuses: JobStatus[] = ['deposit_paid', 'scheduled', 'in_progress', 'complete', 'final_paid', 'reviewed'];
-            const isDepositPaid = depositPaidStatuses.includes(job.status);
-
-            if (isDepositPaid) {
+            // Deposit received — shown only when deposit_paid_at is actually set
+            if (job.deposit_paid_at != null) {
               return (
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
                     <span className="material-symbols-outlined text-sm">check_circle</span>
                     Deposit received
-                    {job.deposit_paid_at && (
-                      <span className="font-normal">
-                        {' '}· {new Date(job.deposit_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    )}
+                    <span className="font-normal">
+                      {' '}· {new Date(job.deposit_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
                   </span>
                   {job.deposit_amount != null && (
                     <span className="text-sm font-semibold text-on-surface">
