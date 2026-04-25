@@ -165,7 +165,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'EaveHQ <onboarding@resend.dev>',
+        from: 'EaveHQ <eavehq@nexusflow.solutions>',
         to: [job.client_email],
         subject: 'Your job is complete — final payment due',
         html: htmlBody,
