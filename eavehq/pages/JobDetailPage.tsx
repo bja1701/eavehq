@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+
+const NOTIFY_FINAL_PAYMENT_URL =
+  'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/notify-final-payment';
 import { useProfile, useProfileVisibilityRefetch } from '../hooks/useProfile';
 import { isFreeTierEstimatorExhausted } from '../utils/estimatorAccess';
 import SharedLayout from '../components/SharedLayout';
@@ -93,6 +96,34 @@ export default function JobDetailPage() {
       const confirmed = window.confirm('No deposit recorded. Mark as Scheduled anyway?');
       if (!confirmed) return;
     }
+
+    // in_progress → complete: call edge function so client gets a payment email
+    if (job.status === 'in_progress' && cfg.nextManualStatus === 'complete') {
+      setAdvancingStatus(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) throw new Error('Not authenticated');
+        const res = await fetch(NOTIFY_FINAL_PAYMENT_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ job_id: id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Failed to mark complete');
+        handleStatusChange('complete');
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to mark complete');
+      } finally {
+        setAdvancingStatus(false);
+      }
+      return;
+    }
+
+    // All other transitions: direct Supabase update
     setAdvancingStatus(true);
     const { error } = await supabase.from('jobs').update({ status: cfg.nextManualStatus }).eq('id', id);
     setAdvancingStatus(false);
