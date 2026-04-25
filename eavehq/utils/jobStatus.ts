@@ -11,8 +11,8 @@ export const JOB_STATUS_CONFIG: Record<JobStatus, StatusConfig> = {
   estimate_sent: {
     label: 'Estimate Sent',
     badgeCls: 'bg-surface-container text-on-surface-variant',
-    nextManualStatus: null,
-    nextManualLabel: null,
+    nextManualStatus: 'scheduled',
+    nextManualLabel: 'Mark as Scheduled',
   },
   deposit_paid: {
     label: 'Deposit Paid',

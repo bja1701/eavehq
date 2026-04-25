@@ -32,13 +32,20 @@ serve(async (req) => {
 
     const { data: job, error: jobError } = await supabaseAdmin
       .from('jobs')
-      .select('id, user_id, name, deposit_percent, client_email, status')
+      .select('id, user_id, name, deposit_percent, deposit_amount, client_email, status')
       .eq('portal_token', portal_token)
       .single();
 
     if (jobError || !job) {
       return new Response(JSON.stringify({ error: 'Job not found' }), {
         status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (job.status !== 'complete') {
+      return new Response(JSON.stringify({ error: 'Job is not yet marked complete' }), {
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -69,12 +76,20 @@ serve(async (req) => {
       .eq('id', job.user_id)
       .single();
 
-    const depositPercent = job.deposit_percent ?? 50;
     const totalPrice = quote.total_price ?? 0;
-    const depositCents = Math.round(totalPrice * (depositPercent / 100) * 100);
 
-    if (depositCents < 50) {
-      return new Response(JSON.stringify({ error: 'Deposit amount is too small to process' }), {
+    // Calculate remaining balance: prefer stored deposit_amount, fall back to percent estimate
+    const depositAmount =
+      job.deposit_amount != null
+        ? job.deposit_amount
+        : totalPrice * ((job.deposit_percent ?? 50) / 100);
+
+    const finalAmount = totalPrice - depositAmount;
+
+    const finalCents = Math.round(finalAmount * 100);
+
+    if (finalCents < 50) {
+      return new Response(JSON.stringify({ error: 'Final amount is too small to process' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -92,20 +107,21 @@ serve(async (req) => {
         {
           price_data: {
             currency: 'usd',
-            unit_amount: depositCents,
+            unit_amount: finalCents,
             product_data: {
-              name: `Deposit: ${job.name} — ${quote.label}`,
+              name: `Final Payment: ${job.name} — ${quote.label}`,
             },
           },
           quantity: 1,
         },
       ],
-      success_url: `${siteUrl}/quote/${portal_token}/success`,
+      success_url: `${siteUrl}/quote/${portal_token}/final-success`,
       cancel_url: `${siteUrl}/quote/${portal_token}`,
       metadata: {
         job_id: job.id,
         quote_id: quote.id,
         portal_token,
+        payment_type: 'final',
       },
       ...(job.client_email ? { customer_email: job.client_email } : {}),
     };
@@ -115,7 +131,7 @@ serve(async (req) => {
         transfer_data: { destination: ownerProfile.stripe_account_id },
       };
     } else {
-      console.warn(`create-portal-checkout: job ${job.id} owner has no Connect account — funds go to platform`);
+      console.warn(`create-final-checkout: job ${job.id} owner has no Connect account — funds go to platform`);
     }
 
     let session: Stripe.Checkout.Session;

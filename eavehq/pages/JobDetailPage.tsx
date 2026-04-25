@@ -8,6 +8,7 @@ import QuoteCard from '../components/QuoteCard';
 import ClientQuoteModal from '../components/ClientQuoteModal';
 import JobStatusBadge from '../components/JobStatusBadge';
 import { Job, JobStatus } from '../types/job';
+import { JOB_STATUS_CONFIG } from '../utils/jobStatus';
 
 interface Quote {
   id: string;
@@ -34,6 +35,11 @@ export default function JobDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [clientQuoteOpen, setClientQuoteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [depositEditValue, setDepositEditValue] = useState<string>('');
+  const [depositEditing, setDepositEditing] = useState(false);
+  const [depositSaving, setDepositSaving] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [advancingStatus, setAdvancingStatus] = useState(false);
 
   const handleStatusChange = (newStatus: JobStatus) => {
     setJob(prev => prev ? { ...prev, status: newStatus } : prev);
@@ -41,6 +47,48 @@ export default function JobDetailPage() {
 
   const handleJobUpdate = (updates: Partial<Job>) => {
     setJob(prev => prev ? { ...prev, ...updates } : prev);
+  };
+
+  const handleDepositEditStart = () => {
+    if (!job) return;
+    setDepositEditValue(String(job.deposit_percent ?? 50));
+    setDepositError(null);
+    setDepositEditing(true);
+  };
+
+  const handleDepositSave = async () => {
+    if (!job || !id) return;
+    const parsed = parseInt(depositEditValue, 10);
+    if (isNaN(parsed) || parsed < 1 || parsed > 100) {
+      setDepositError('Enter a whole number between 1 and 100.');
+      return;
+    }
+    setDepositSaving(true);
+    const { error } = await supabase.from('jobs').update({ deposit_percent: parsed }).eq('id', id);
+    setDepositSaving(false);
+    if (error) {
+      setDepositError(error.message);
+      return;
+    }
+    handleJobUpdate({ deposit_percent: parsed });
+    setDepositEditing(false);
+    setDepositError(null);
+  };
+
+  const handleDepositKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleDepositSave();
+    if (e.key === 'Escape') setDepositEditing(false);
+  };
+
+  const handleAdvanceStatus = async () => {
+    if (!job || !id) return;
+    const cfg = JOB_STATUS_CONFIG[job.status];
+    if (!cfg.nextManualStatus) return;
+    setAdvancingStatus(true);
+    const { error } = await supabase.from('jobs').update({ status: cfg.nextManualStatus }).eq('id', id);
+    setAdvancingStatus(false);
+    if (error) { alert(error.message); return; }
+    handleStatusChange(cfg.nextManualStatus);
   };
 
   const handleCopyPortalLink = async () => {
@@ -187,6 +235,21 @@ export default function JobDetailPage() {
               <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
               Client quote
             </button>
+            {(() => {
+              const cfg = JOB_STATUS_CONFIG[job.status];
+              if (!cfg.nextManualStatus || !cfg.nextManualLabel) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={handleAdvanceStatus}
+                  disabled={advancingStatus}
+                  className="order-1 flex items-center justify-center gap-2 rounded-lg border border-outline-variant/30 bg-surface-container-lowest py-3 px-5 font-headline text-sm font-bold text-on-surface shadow-sm transition-colors hover:bg-surface-container-low disabled:opacity-50 sm:order-2"
+                >
+                  <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                  {advancingStatus ? 'Saving…' : cfg.nextManualLabel}
+                </button>
+              );
+            })()}
             <button
               type="button"
               onClick={() => handleOpenEstimator()}
@@ -221,6 +284,58 @@ export default function JobDetailPage() {
             <span className="material-symbols-outlined text-primary-container">share</span>
             Client Portal
           </h2>
+
+          {/* Deposit % editor — always visible */}
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-label text-on-surface-variant">Deposit:</span>
+            {depositEditing ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={depositEditValue}
+                  onChange={e => setDepositEditValue(e.target.value)}
+                  onBlur={handleDepositSave}
+                  onKeyDown={handleDepositKeyDown}
+                  autoFocus
+                  className="w-16 rounded-md border border-outline-variant/40 bg-surface-container px-2 py-1 text-sm font-bold text-on-surface focus:outline-none focus:ring-2 focus:ring-primary-container"
+                />
+                <span className="text-on-surface-variant font-label">%</span>
+                {depositSaving && <span className="text-xs text-on-surface-variant">Saving…</span>}
+                {depositError && <span className="text-xs text-error">{depositError}</span>}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDepositEditStart}
+                className="flex items-center gap-1 font-bold text-on-surface hover:text-primary transition-colors"
+              >
+                {job.deposit_percent ?? 50}%
+                <span className="material-symbols-outlined text-sm text-on-surface-variant">edit</span>
+              </button>
+            )}
+          </div>
+
+          {/* Final payment status */}
+          {job.status === 'final_paid' && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">
+                <span className="material-symbols-outlined text-sm">check_circle</span>
+                Final payment received
+                {job.final_paid_at && (
+                  <span className="font-normal">
+                    {' '}· {new Date(job.final_paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                )}
+              </span>
+              {job.final_amount != null && (
+                <span className="text-sm font-semibold text-on-surface">
+                  ${job.final_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              )}
+            </div>
+          )}
 
           {(() => {
             const depositPaidStatuses: JobStatus[] = ['deposit_paid', 'scheduled', 'in_progress', 'complete', 'final_paid', 'reviewed'];

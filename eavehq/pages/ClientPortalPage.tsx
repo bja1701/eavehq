@@ -5,6 +5,9 @@ import { supabase } from '../lib/supabase';
 const EDGE_FN_URL =
   'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/create-portal-checkout';
 
+const FINAL_EDGE_FN_URL =
+  'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/create-final-checkout';
+
 interface Quote {
   id: string;
   label: string;
@@ -40,6 +43,8 @@ export default function ClientPortalPage() {
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  const [payingFinal, setPayingFinal] = useState(false);
+  const [payFinalError, setPayFinalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) { setNotFound(true); setLoading(false); return; }
@@ -90,6 +95,36 @@ export default function ClientPortalPage() {
       ? (selectedQuote.total_price * (job.deposit_percent / 100))
       : null;
 
+  // For final payment: use stored deposit_amount if available, else estimate from percent
+  const finalDollars =
+    selectedQuote?.total_price != null && job
+      ? selectedQuote.total_price - (
+          job.deposit_amount != null
+            ? job.deposit_amount
+            : selectedQuote.total_price * (job.deposit_percent / 100)
+        )
+      : null;
+
+  const handlePayFinal = async () => {
+    if (!selectedQuoteId || !token) return;
+    setPayingFinal(true);
+    setPayFinalError(null);
+    try {
+      const res = await fetch(FINAL_EDGE_FN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portal_token: token, quote_id: selectedQuoteId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Checkout failed');
+      if (!data.checkout_url) throw new Error('No checkout URL returned');
+      window.location.href = data.checkout_url;
+    } catch (err) {
+      setPayFinalError(err instanceof Error ? err.message : String(err));
+      setPayingFinal(false);
+    }
+  };
+
   const handlePayDeposit = async () => {
     if (!selectedQuoteId || !token) return;
     setPaying(true);
@@ -112,6 +147,8 @@ export default function ClientPortalPage() {
 
   const depositPaidStatuses = ['deposit_paid', 'scheduled', 'in_progress', 'complete', 'final_paid', 'reviewed'];
   const isDepositPaid = job ? depositPaidStatuses.includes(job.status) : false;
+  const isFinalPaid = job?.status === 'final_paid' || job?.status === 'reviewed';
+  const isReadyForFinal = job?.status === 'complete';
 
   if (loading) {
     return (
@@ -161,8 +198,23 @@ export default function ClientPortalPage() {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-8 space-y-6">
-        {/* Deposit paid banner */}
-        {isDepositPaid && (
+        {/* Final payment received banner */}
+        {isFinalPaid && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-start gap-3">
+            <svg className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="font-bold text-green-800">Final payment received</p>
+              <p className="text-green-700 text-sm mt-0.5">
+                Thank you — your account is settled in full!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Deposit paid banner — show when deposit paid but job not yet complete/final */}
+        {isDepositPaid && !isReadyForFinal && !isFinalPaid && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-start gap-3">
             <svg className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -174,6 +226,68 @@ export default function ClientPortalPage() {
               </p>
             </div>
           </div>
+        )}
+
+        {/* Final payment due — job is complete, awaiting final payment */}
+        {isReadyForFinal && !isFinalPaid && (
+          <>
+            {/* Deposit already paid banner above final section */}
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+              <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-green-800 text-sm font-semibold">Deposit received — installation complete</p>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 mb-1">Final Payment Due</h2>
+              <p className="text-gray-500 text-sm">Your installation is complete. Please pay the remaining balance to close out your project.</p>
+            </div>
+
+            {selectedQuote && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+                {finalDollars != null && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Remaining balance</span>
+                    <span className="font-bold text-gray-900 text-base">
+                      ${finalDollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                {payFinalError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                    <p className="text-red-700 text-sm">{payFinalError}</p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handlePayFinal}
+                  disabled={payingFinal}
+                  className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl transition-colors flex items-center justify-center gap-2 text-base"
+                >
+                  {payingFinal ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Preparing checkout…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                      </svg>
+                      Pay Final Balance
+                    </>
+                  )}
+                </button>
+
+                <p className="text-center text-gray-400 text-xs">
+                  Secure payment powered by Stripe
+                </p>
+              </div>
+            )}
+          </>
         )}
 
         {/* Quote selection — only when deposit not yet paid */}
