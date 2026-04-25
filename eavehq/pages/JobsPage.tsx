@@ -226,9 +226,11 @@ export default function JobsPage() {
                         {deletingId === job.id ? 'progress_activity' : 'delete'}
                       </span>
                     </button>
-                    <div className="absolute top-3 right-3">
-                      <JobStatusBadge status={job.status ?? 'estimate_sent'} size="sm" />
-                    </div>
+                    {(job.status ?? 'estimate_sent') !== 'estimate_sent' && (
+                      <div className="absolute top-3 right-3">
+                        <JobStatusBadge status={job.status ?? 'estimate_sent'} size="sm" />
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-6">

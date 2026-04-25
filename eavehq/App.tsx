@@ -14,6 +14,7 @@ import FeedbackButton from './components/FeedbackButton';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalSuccessPage from './pages/ClientPortalSuccessPage';
+import ClientPortalFinalSuccessPage from './pages/ClientPortalFinalSuccessPage';
 
 function AppRoutes() {
   const { session, loading: authLoading, init } = useAuth();
@@ -45,6 +46,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/quote/:token" element={<ClientPortalPage />} />
         <Route path="/quote/:token/success" element={<ClientPortalSuccessPage />} />
+        <Route path="/quote/:token/final-success" element={<ClientPortalFinalSuccessPage />} />
       </Routes>
     );
   }
