@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 
 const NOTIFY_FINAL_PAYMENT_URL =
   'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/notify-final-payment';
+const SEND_DEPOSIT_REQUEST_URL =
+  'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/send-deposit-request';
 import { useProfile, useProfileVisibilityRefetch } from '../hooks/useProfile';
 import { isFreeTierEstimatorExhausted } from '../utils/estimatorAccess';
 import SharedLayout from '../components/SharedLayout';
@@ -43,6 +45,8 @@ export default function JobDetailPage() {
   const [depositSaving, setDepositSaving] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [advancingStatus, setAdvancingStatus] = useState(false);
+  const [depositModalOpen, setDepositModalOpen] = useState(false);
+  const [depositEmailSending, setDepositEmailSending] = useState(false);
 
   const handleStatusChange = (newStatus: JobStatus) => {
     setJob(prev => prev ? { ...prev, status: newStatus } : prev);
@@ -83,6 +87,43 @@ export default function JobDetailPage() {
     if (e.key === 'Escape') setDepositEditing(false);
   };
 
+  // Called after the deposit-request modal resolves (sendEmail = true | false).
+  const handleAdvanceToStarted = async (sendEmail: boolean) => {
+    if (!job || !id) return;
+    setDepositModalOpen(false);
+    setDepositEmailSending(sendEmail);
+    setAdvancingStatus(true);
+    try {
+      if (sendEmail) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) throw new Error('Not authenticated');
+        const res = await fetch(SEND_DEPOSIT_REQUEST_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ job_id: id }),
+        });
+        // Email failure is non-blocking — log but don't abort the status update
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error('send-deposit-request failed:', errData);
+        }
+      }
+      // Always advance status regardless of email outcome
+      const { error } = await supabase.from('jobs').update({ status: 'in_progress' }).eq('id', id);
+      if (error) { alert(error.message); return; }
+      handleStatusChange('in_progress');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to mark as started');
+    } finally {
+      setAdvancingStatus(false);
+      setDepositEmailSending(false);
+    }
+  };
+
   const handleAdvanceStatus = async () => {
     if (!job || !id) return;
     const cfg = JOB_STATUS_CONFIG[job.status];
@@ -97,7 +138,13 @@ export default function JobDetailPage() {
       if (!confirmed) return;
     }
 
-    // in_progress → complete: call edge function so client gets a payment email
+    // scheduled → in_progress: show deposit-request confirmation modal
+    if (job.status === 'scheduled' && cfg.nextManualStatus === 'in_progress') {
+      setDepositModalOpen(true);
+      return;
+    }
+
+    // in_progress → complete: call edge function so client gets a final payment email
     if (job.status === 'in_progress' && cfg.nextManualStatus === 'complete') {
       setAdvancingStatus(true);
       try {
@@ -280,6 +327,10 @@ export default function JobDetailPage() {
             {(() => {
               const cfg = JOB_STATUS_CONFIG[job.status];
               if (!cfg.nextManualStatus || !cfg.nextManualLabel) return null;
+              // "Mark as Started" requires at least one estimate
+              const isStartedTransition =
+                job.status === 'scheduled' && cfg.nextManualStatus === 'in_progress';
+              if (isStartedTransition && quotes.length === 0) return null;
               return (
                 <button
                   type="button"
@@ -489,6 +540,65 @@ export default function JobDetailPage() {
         quotes={quotes}
         profile={profile}
       />
+
+      {depositModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-inverse-surface/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="deposit-modal-title"
+          onClick={(e) => e.target === e.currentTarget && setDepositModalOpen(false)}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-outline-variant/10 bg-surface-container-lowest shadow-[0px_20px_40px_rgba(17,28,45,0.15)]">
+            <div className="h-1 w-full bg-primary-container" />
+            <div className="p-7">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-container/30">
+                  <span className="material-symbols-outlined text-primary text-2xl">mail</span>
+                </div>
+                <h2 id="deposit-modal-title" className="font-headline text-xl font-bold text-on-surface">
+                  Send deposit request?
+                </h2>
+              </div>
+              <p className="mb-6 text-sm text-on-surface-variant leading-relaxed">
+                Send a deposit request email to{' '}
+                <span className="font-semibold text-on-surface">
+                  {job.client_email ?? 'the client'}
+                </span>
+                {' '}letting them know you&apos;re ready to start?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleAdvanceToStarted(false)}
+                  disabled={depositEmailSending || advancingStatus}
+                  className="flex-1 rounded-lg bg-surface-container-low py-3 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-50"
+                >
+                  No, just start
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAdvanceToStarted(true)}
+                  disabled={depositEmailSending || advancingStatus}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-headline font-bold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {depositEmailSending || advancingStatus ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-lg">send</span>
+                      Yes, send email
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </SharedLayout>
   );
 }

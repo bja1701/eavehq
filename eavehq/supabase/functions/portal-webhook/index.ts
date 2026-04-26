@@ -79,6 +79,94 @@ serve(async (req) => {
   }
 
   console.log(`Portal ${paymentType ?? 'deposit'} recorded for job ${jobId}: $${amountDollars}`);
+
+  // Send deposit confirmation email only on the deposit path
+  if (paymentType !== 'final') {
+    const { data: job } = await supabase
+      .from('jobs')
+      .select('client_name, client_email, portal_token, user_id, name')
+      .eq('id', jobId)
+      .single();
+
+    if (!job?.client_email) {
+      console.warn(`portal-webhook: job ${jobId} has no client_email — skipping deposit email`);
+    } else {
+      const resendApiKey = Deno.env.get('RESEND_API');
+      if (!resendApiKey) {
+        console.error('portal-webhook: RESEND_API not set — skipping deposit email');
+      } else {
+        // Fetch contractor name for the email
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, company_name')
+          .eq('id', job.user_id)
+          .single();
+
+        const contractorName = profile?.company_name ?? profile?.full_name ?? 'Your contractor';
+        const clientName = job.client_name ?? 'there';
+        const jobName = job.name ?? 'your job';
+        const siteUrl = Deno.env.get('SITE_URL') ?? 'https://eavehq.com';
+        const portalLink = job.portal_token
+          ? `${siteUrl}/quote/${job.portal_token}`
+          : siteUrl;
+
+        const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:system-ui,-apple-system,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;padding:40px 48px;max-width:560px">
+        <tr><td>
+          <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827">Deposit received</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#6b7280">Hi ${clientName},</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6">
+            <strong>${contractorName}</strong> has received your deposit of <strong>$${amountDollars.toFixed(2)}</strong>
+            for <strong>${jobName}</strong>. You're all set — we'll be in touch as the work progresses.
+          </p>
+          <table cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+            <tr><td>
+              <a href="${portalLink}"
+                 style="display:inline-block;background:#f59e0b;color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;padding:14px 28px;border-radius:8px">
+                View Your Job Portal &rarr;
+              </a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6">
+            If you have any questions, reply to this email or contact your contractor directly.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim();
+
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'EaveHQ <eavehq@nexusflow.solutions>',
+            to: [job.client_email],
+            subject: `Deposit received — ${jobName}`,
+            html: htmlBody,
+          }),
+        });
+
+        if (!emailRes.ok) {
+          const errBody = await emailRes.text();
+          console.error(`portal-webhook: Resend error ${emailRes.status}: ${errBody}`);
+        } else {
+          console.log(`portal-webhook: deposit confirmation email sent to ${job.client_email}`);
+        }
+      }
+    }
+  }
+
   return new Response(JSON.stringify({ received: true }), {
     headers: { 'Content-Type': 'application/json' },
   });

@@ -1,5 +1,4 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import Stripe from 'https://esm.sh/stripe@14?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -80,56 +79,75 @@ serve(async (req) => {
       });
     }
 
-    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
-      apiVersion: '2024-04-10',
-    });
-
-    const siteUrl = Deno.env.get('SITE_URL')!;
-
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            unit_amount: depositCents,
-            product_data: {
-              name: `Deposit: ${job.name} — ${quote.label}`,
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${siteUrl}/quote/${portal_token}/success`,
-      cancel_url: `${siteUrl}/quote/${portal_token}`,
-      metadata: {
-        job_id: job.id,
-        quote_id: quote.id,
-        portal_token,
-      },
-      ...(job.client_email ? { customer_email: job.client_email } : {}),
-    };
-
-    if (ownerProfile?.stripe_connect_enabled && ownerProfile?.stripe_account_id) {
-      sessionParams.payment_intent_data = {
-        transfer_data: { destination: ownerProfile.stripe_account_id },
-      };
-    } else {
-      console.warn(`create-portal-checkout: job ${job.id} owner has no Connect account — funds go to platform`);
+    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
+    if (!stripeKey) {
+      return new Response(JSON.stringify({ error: 'STRIPE_SECRET_KEY not configured' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    let session: Stripe.Checkout.Session;
+    const rawSiteUrl = Deno.env.get('SITE_URL') || 'eavehq.nexusflow.solutions';
+    const siteUrl = rawSiteUrl.startsWith('http') ? rawSiteUrl : `https://${rawSiteUrl}`;
+
+    const params = new URLSearchParams({
+      mode: 'payment',
+      success_url: `${siteUrl}/quote/${portal_token}/success`,
+      cancel_url: `${siteUrl}/quote/${portal_token}`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][unit_amount]': String(depositCents),
+      'line_items[0][price_data][product_data][name]': `Deposit: ${job.name} — ${quote.label}`,
+      'line_items[0][quantity]': '1',
+      'metadata[job_id]': job.id,
+      'metadata[quote_id]': quote.id,
+      'metadata[portal_token]': portal_token,
+    });
+
+    if (job.client_email) params.set('customer_email', job.client_email);
+
+    if (ownerProfile?.stripe_connect_enabled && ownerProfile?.stripe_account_id) {
+      params.set('payment_intent_data[transfer_data][destination]', ownerProfile.stripe_account_id);
+    }
+
+    let stripeRes: Response;
     try {
-      session = await stripe.checkout.sessions.create(sessionParams);
-    } catch (stripeErr: unknown) {
-      const msg = stripeErr instanceof Error ? stripeErr.message : '';
-      if (msg.toLowerCase().includes('transfer_data') && sessionParams.payment_intent_data?.transfer_data) {
-        console.warn('transfer_data rejected — retrying without it.');
-        delete sessionParams.payment_intent_data;
-        session = await stripe.checkout.sessions.create(sessionParams);
-      } else {
-        throw stripeErr;
+      stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${stripeKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Stripe-Version': '2024-04-10',
+        },
+        body: params.toString(),
+      });
+    } catch (fetchErr: unknown) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      throw new Error(`fetch-to-stripe failed: ${msg}`);
+    }
+
+    const session = await stripeRes.json();
+
+    if (!stripeRes.ok) {
+      const errMsg = session?.error?.message ?? 'Stripe error';
+      // If Connect transfer rejected, retry without it
+      if (errMsg.toLowerCase().includes('transfer_data') && ownerProfile?.stripe_account_id) {
+        params.delete('payment_intent_data[transfer_data][destination]');
+        const retryRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${stripeKey}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Stripe-Version': '2024-04-10',
+          },
+          body: params.toString(),
+        });
+        const retrySession = await retryRes.json();
+        if (!retryRes.ok) throw new Error(retrySession?.error?.message ?? 'Stripe retry error');
+        return new Response(JSON.stringify({ checkout_url: retrySession.url }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
+      throw new Error(errMsg);
     }
 
     return new Response(JSON.stringify({ checkout_url: session.url }), {
@@ -137,7 +155,8 @@ serve(async (req) => {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
-    return new Response(JSON.stringify({ error: message }), {
+    const stack = err instanceof Error ? (err.stack ?? '').substring(0, 800) : '';
+    return new Response(JSON.stringify({ error: message, stack }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

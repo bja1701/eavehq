@@ -24,7 +24,7 @@ export const JOB_STATUS_CONFIG: Record<JobStatus, StatusConfig> = {
     label: 'Scheduled',
     badgeCls: 'bg-tertiary-container/50 text-tertiary',
     nextManualStatus: 'in_progress',
-    nextManualLabel: 'Mark In Progress',
+    nextManualLabel: 'Mark as Started',
   },
   in_progress: {
     label: 'In Progress',

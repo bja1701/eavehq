@@ -99,7 +99,8 @@ serve(async (req) => {
       apiVersion: '2024-04-10',
     });
 
-    const siteUrl = Deno.env.get('SITE_URL')!;
+    const rawSiteUrl = Deno.env.get('SITE_URL') || 'eavehq.nexusflow.solutions';
+    const siteUrl = rawSiteUrl.startsWith('http') ? rawSiteUrl : `https://${rawSiteUrl}`;
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: 'payment',
