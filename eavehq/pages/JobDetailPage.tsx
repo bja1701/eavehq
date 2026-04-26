@@ -4,8 +4,8 @@ import { supabase } from '../lib/supabase';
 
 const NOTIFY_FINAL_PAYMENT_URL =
   'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/notify-final-payment';
-const SEND_DEPOSIT_REQUEST_URL =
-  'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/send-deposit-request';
+const SEND_ESTIMATE_OPTIONS_URL =
+  'https://bsbewwwflqjlxxovjgec.supabase.co/functions/v1/send-estimate-options';
 import { useProfile, useProfileVisibilityRefetch } from '../hooks/useProfile';
 import { isFreeTierEstimatorExhausted } from '../utils/estimatorAccess';
 import SharedLayout from '../components/SharedLayout';
@@ -45,8 +45,9 @@ export default function JobDetailPage() {
   const [depositSaving, setDepositSaving] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [advancingStatus, setAdvancingStatus] = useState(false);
-  const [depositModalOpen, setDepositModalOpen] = useState(false);
-  const [depositEmailSending, setDepositEmailSending] = useState(false);
+  const [sendOptionsModalOpen, setSendOptionsModalOpen] = useState(false);
+  const [sendOptionsMessage, setSendOptionsMessage] = useState('');
+  const [sendOptionsSending, setSendOptionsSending] = useState(false);
 
   const handleStatusChange = (newStatus: JobStatus) => {
     setJob(prev => prev ? { ...prev, status: newStatus } : prev);
@@ -87,40 +88,35 @@ export default function JobDetailPage() {
     if (e.key === 'Escape') setDepositEditing(false);
   };
 
-  // Called after the deposit-request modal resolves (sendEmail = true | false).
-  const handleAdvanceToStarted = async (sendEmail: boolean) => {
-    if (!job || !id) return;
-    setDepositModalOpen(false);
-    setDepositEmailSending(sendEmail);
-    setAdvancingStatus(true);
+  const handleSendEstimateOptions = async () => {
+    if (!id) return;
+    setSendOptionsSending(true);
     try {
-      if (sendEmail) {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) throw new Error('Not authenticated');
-        const res = await fetch(SEND_DEPOSIT_REQUEST_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ job_id: id }),
-        });
-        // Email failure is non-blocking — log but don't abort the status update
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          console.error('send-deposit-request failed:', errData);
-        }
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+      const res = await fetch(SEND_ESTIMATE_OPTIONS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          job_id: id,
+          ...(sendOptionsMessage.trim() ? { custom_message: sendOptionsMessage.trim() } : {}),
+        }),
+      });
+      // Email failure is non-blocking — log but don't abort
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error('send-estimate-options failed:', errData);
       }
-      // Always advance status regardless of email outcome
-      const { error } = await supabase.from('jobs').update({ status: 'in_progress' }).eq('id', id);
-      if (error) { alert(error.message); return; }
-      handleStatusChange('in_progress');
+      setSendOptionsModalOpen(false);
+      setSendOptionsMessage('');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to mark as started');
+      alert(err instanceof Error ? err.message : 'Failed to send estimate options');
     } finally {
-      setAdvancingStatus(false);
-      setDepositEmailSending(false);
+      setSendOptionsSending(false);
     }
   };
 
@@ -138,30 +134,43 @@ export default function JobDetailPage() {
       if (!confirmed) return;
     }
 
-    // scheduled → in_progress: show deposit-request confirmation modal
+    // scheduled → in_progress: direct status update, no email prompt
     if (job.status === 'scheduled' && cfg.nextManualStatus === 'in_progress') {
-      setDepositModalOpen(true);
+      setAdvancingStatus(true);
+      const { error } = await supabase.from('jobs').update({ status: 'in_progress' }).eq('id', id);
+      setAdvancingStatus(false);
+      if (error) { alert(error.message); return; }
+      handleStatusChange('in_progress');
       return;
     }
 
-    // in_progress → complete: call edge function so client gets a final payment email
+    // in_progress → complete: call edge function so client gets a final payment email,
+    // but skip the email if the job is already final_paid
     if (job.status === 'in_progress' && cfg.nextManualStatus === 'complete') {
       setAdvancingStatus(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) throw new Error('Not authenticated');
-        const res = await fetch(NOTIFY_FINAL_PAYMENT_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ job_id: id }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? 'Failed to mark complete');
-        handleStatusChange('complete');
+        if (job.final_paid_at != null) {
+          // Final payment already collected — just update status, no email
+          console.log('notify-final-payment: final_paid_at already set — skipping email');
+          const { error } = await supabase.from('jobs').update({ status: 'complete' }).eq('id', id);
+          if (error) throw new Error(error.message);
+          handleStatusChange('complete');
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) throw new Error('Not authenticated');
+          const res = await fetch(NOTIFY_FINAL_PAYMENT_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ job_id: id }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? 'Failed to mark complete');
+          handleStatusChange('complete');
+        }
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Failed to mark complete');
       } finally {
@@ -324,6 +333,16 @@ export default function JobDetailPage() {
               <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
               Client quote
             </button>
+            {quotes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSendOptionsModalOpen(true)}
+                className="order-2 flex items-center justify-center gap-2 rounded-lg border border-outline-variant/30 bg-surface-container-lowest py-3 px-5 font-headline text-sm font-bold text-on-surface shadow-sm transition-colors hover:bg-surface-container-low sm:order-2"
+              >
+                <span className="material-symbols-outlined text-lg">send</span>
+                Send Options to Client
+              </button>
+            )}
             {(() => {
               const cfg = JOB_STATUS_CONFIG[job.status];
               if (!cfg.nextManualStatus || !cfg.nextManualLabel) return null;
@@ -541,48 +560,67 @@ export default function JobDetailPage() {
         profile={profile}
       />
 
-      {depositModalOpen && (
+      {sendOptionsModalOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-inverse-surface/70 px-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="deposit-modal-title"
-          onClick={(e) => e.target === e.currentTarget && setDepositModalOpen(false)}
+          aria-labelledby="send-options-modal-title"
+          onClick={(e) => e.target === e.currentTarget && !sendOptionsSending && setSendOptionsModalOpen(false)}
         >
           <div className="w-full max-w-md overflow-hidden rounded-xl border border-outline-variant/10 bg-surface-container-lowest shadow-[0px_20px_40px_rgba(17,28,45,0.15)]">
             <div className="h-1 w-full bg-primary-container" />
             <div className="p-7">
               <div className="mb-4 flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-container/30">
-                  <span className="material-symbols-outlined text-primary text-2xl">mail</span>
+                  <span className="material-symbols-outlined text-primary text-2xl">send</span>
                 </div>
-                <h2 id="deposit-modal-title" className="font-headline text-xl font-bold text-on-surface">
-                  Send deposit request?
+                <h2 id="send-options-modal-title" className="font-headline text-xl font-bold text-on-surface">
+                  Send options to client
                 </h2>
               </div>
-              <p className="mb-6 text-sm text-on-surface-variant leading-relaxed">
-                Send a deposit request email to{' '}
-                <span className="font-semibold text-on-surface">
-                  {job.client_email ?? 'the client'}
-                </span>
-                {' '}letting them know you&apos;re ready to start?
+              <p className="mb-4 text-sm text-on-surface-variant leading-relaxed">
+                Sending <span className="font-semibold text-on-surface">{quotes.length} estimate{quotes.length !== 1 ? 's' : ''}</span> to{' '}
+                <span className="font-semibold text-on-surface">{job.client_email ?? 'the client'}</span>.
+                Each option will include a link for the client to select it and pay their deposit.
               </p>
+              <div className="mb-2 rounded-lg border border-outline-variant/20 bg-surface-container-low px-4 py-3 space-y-1">
+                {quotes.map(q => (
+                  <p key={q.id} className="text-sm text-on-surface font-medium">
+                    {q.label}{q.total_price != null ? ` — $${q.total_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+                  </p>
+                ))}
+              </div>
+              <div className="mt-4 mb-6">
+                <label htmlFor="send-options-message" className="block text-xs font-label uppercase tracking-wider text-on-surface-variant mb-1.5">
+                  Custom message (optional)
+                </label>
+                <textarea
+                  id="send-options-message"
+                  rows={3}
+                  value={sendOptionsMessage}
+                  onChange={e => setSendOptionsMessage(e.target.value)}
+                  disabled={sendOptionsSending}
+                  placeholder="Add a personal note to the client…"
+                  className="w-full rounded-lg border border-outline-variant/40 bg-surface-container px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary-container disabled:opacity-50 resize-none"
+                />
+              </div>
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => void handleAdvanceToStarted(false)}
-                  disabled={depositEmailSending || advancingStatus}
+                  onClick={() => { setSendOptionsModalOpen(false); setSendOptionsMessage(''); }}
+                  disabled={sendOptionsSending}
                   className="flex-1 rounded-lg bg-surface-container-low py-3 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-50"
                 >
-                  No, just start
+                  Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleAdvanceToStarted(true)}
-                  disabled={depositEmailSending || advancingStatus}
+                  onClick={() => void handleSendEstimateOptions()}
+                  disabled={sendOptionsSending}
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-headline font-bold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {depositEmailSending || advancingStatus ? (
+                  {sendOptionsSending ? (
                     <>
                       <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
                       Sending…
@@ -590,7 +628,7 @@ export default function JobDetailPage() {
                   ) : (
                     <>
                       <span className="material-symbols-outlined text-lg">send</span>
-                      Yes, send email
+                      Send
                     </>
                   )}
                 </button>

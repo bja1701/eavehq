@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
 const EDGE_FN_URL =
@@ -33,6 +33,8 @@ interface JobData {
 
 export default function ClientPortalPage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const deepLinkedEstimateId = searchParams.get('estimate');
 
   const [job, setJob] = useState<JobData | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -81,10 +83,17 @@ export default function ClientPortalPage() {
         .single(),
     ]);
 
-    setQuotes((quotesData as Quote[]) ?? []);
+    const loadedQuotes = (quotesData as Quote[]) ?? [];
+    setQuotes(loadedQuotes);
     setContractor((profileData as ContractorProfile) ?? null);
-    if (quotesData && quotesData.length > 0) {
-      setSelectedQuoteId(quotesData[0].id);
+    if (loadedQuotes.length > 0) {
+      // If the URL contains ?estimate=<id> and that id exists in this job's quotes, pre-select it.
+      // Otherwise fall back to the first quote.
+      const preSelected =
+        deepLinkedEstimateId && loadedQuotes.some(q => q.id === deepLinkedEstimateId)
+          ? deepLinkedEstimateId
+          : loadedQuotes[0].id;
+      setSelectedQuoteId(preSelected);
     }
     setLoading(false);
   };
